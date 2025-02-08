@@ -13,6 +13,7 @@
 #define AK8963_CNTL1  0x0A
 #define AK8963_ST1    0x02
 #define AK8963_HXL    0x03
+#define AK8963_ST2    0x09
 
 void setup() {
     Serial.begin(115200);
@@ -26,9 +27,8 @@ void setup() {
     writeByte(MPU9250_ADDR, INT_PIN_CFG, 0x02);
     delay(10);
 
-    // Initialize AK8963 (16-bit continuous measurement mode)
-    writeByte(AK8963_ADDR, AK8963_CNTL1, 0x16);
-    delay(10);
+    // Initialize AK8963 (ensure proper setup)
+    initMagnetometer();
 }
 
 void loop() {
@@ -77,22 +77,41 @@ void readMPU9250Data(int16_t* accel, int16_t* gyro) {
 }
 
 void readMagnetometer(int16_t* mag) {
-    // Check data ready
+    // Check if data is ready
     Wire.beginTransmission(AK8963_ADDR);
     Wire.write(AK8963_ST1);
     Wire.endTransmission(false);
     Wire.requestFrom(AK8963_ADDR, 1);
-    if (!(Wire.read() & 0x01)) return;  // No new data
+    uint8_t status1 = Wire.read();
+    if (!(status1 & 0x01)) return;  // No new data available
 
-    // Read magnetometer data
+    // Read magnetometer data (little-endian format)
     Wire.beginTransmission(AK8963_ADDR);
     Wire.write(AK8963_HXL);
     Wire.endTransmission(false);
     Wire.requestFrom(AK8963_ADDR, 6);
-    
+
     for (int i = 0; i < 3; i++) {
-        mag[i] = (Wire.read() | (Wire.read() << 8));
+        mag[i] = (Wire.read() | (Wire.read() << 8));  // Correct byte order for AK8963
     }
+
+    // Read ST2 to clear the data buffer and check overflow
+    Wire.beginTransmission(AK8963_ADDR);
+    Wire.write(AK8963_ST2);
+    Wire.endTransmission(false);
+    Wire.requestFrom(AK8963_ADDR, 1);
+    uint8_t st2 = Wire.read();
+    if (st2 & 0x08) {  // Overflow detected
+        Serial.println("Magnetometer Overflow!");
+        return;
+    }
+}
+
+void initMagnetometer() {
+    writeByte(AK8963_ADDR, AK8963_CNTL1, 0x00);  // Power down
+    delay(100);
+    writeByte(AK8963_ADDR, AK8963_CNTL1, 0x16);  // Set to 16-bit continuous mode (Mode 2)
+    delay(100);
 }
 
 void writeByte(uint8_t address, uint8_t reg, uint8_t value) {
@@ -101,3 +120,4 @@ void writeByte(uint8_t address, uint8_t reg, uint8_t value) {
     Wire.write(value);
     Wire.endTransmission();
 }
+
