@@ -1,3 +1,4 @@
+#include <mpu9250.h>
 
 //  Cole Schreiner
 //  Started around ~ 6/30/2022
