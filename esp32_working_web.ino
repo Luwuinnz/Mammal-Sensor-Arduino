@@ -5,24 +5,17 @@
 #include <SD.h>
 #include <SPI.h>
 
+// TwoWire Wire1 = TwoWire(1);  // Custom I2C bus
+MPU6050 mpu1(Wire1);         // Second MPU on Wire1 (I2C1)
+
 //ESP#@ Webserver libraries
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 
-//GPS Libraries
-#include <TinyGPS++.h>
-#include <HardwareSerial.h>
-
 //wifi esp32 integration
 const char* ssid = "ESP32_DataLogger";
 const char* password = "esp32log";
-
-//Webserver login and pw
-// const char* ssid = "NETGEAR77";
-// const char* password = "livelyviolet795";
-// const char* ssid = "PVNET Guest";
-// const char* password = "Promenade";
 
 WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
@@ -43,21 +36,7 @@ File myFile;
 bool enableLogging = true;
 bool loggingToggleRequested = false;
 
-
-// Create TinyGPS++ object
-TinyGPSPlus gps;
-
-// Create a HardwareSerial port (Serial2 for ESP32)
-HardwareSerial gpsSerial(2); // use UART2
-
-
-unsigned long lastGPSUpdate = 0;
-bool gpsAvailable = false;
-const unsigned long gpsTimeout = 10000; // e.g., 10 seconds
-
-char gpsLat[15] = "";
-char gpsLng[15] = "";
-char sensorData[12][10];
+char sensorData[24][10];
 
 
 void setup() {
@@ -71,6 +50,8 @@ void setup() {
 
   // Initialize I2C
   Wire.begin(I2C_SDA, I2C_SCL);
+  Wire1.begin(25, 26); // SDA=25, SCL=26 (choose unused pins on your board)
+
 
   // Initialize SD card
   if (!SD.begin(chipSelect)) {
@@ -81,17 +62,25 @@ void setup() {
 
   // Init MPU6050
   byte status = mpu.begin();
-  Serial.print(F("MPU6050 status: "));
+  Serial.print(F("MPU6050 A status: "));
   Serial.println(status);
   while (status != 0) { delay(500); } // Retry until MPU connects
 
   Serial.println(F("Calculating offsets, do not move MPU6050"));
   delay(1000);
   mpu.calcOffsets(true, true);
-  Serial.println("\nMPU6050 ready!");
+  Serial.println("\nMPU6050 A ready!");
 
-  gpsSerial.begin(9600, SERIAL_8N1, 16, 17); // RX=16, TX=17
-  Serial.println("\nGPS Tracker Started");
+  byte status1 = mpu1.begin();
+  Serial.print(F("\nMPU6050 B status: "));
+  Serial.println(status1);
+  while (status1 != 0) { delay(500); } // Retry until MPU connects
+
+  Serial.println(F("Calculating offsets, do not move MPU6050"));
+  delay(1000);
+  mpu1.calcOffsets(true, true);
+  Serial.println("\nMPU6050 B ready!");
+
 
   // Init RTC
   if (!rtc.begin()) {
@@ -99,14 +88,9 @@ void setup() {
   }
 
 
-  // IPAddress local_IP(192, 168, 1, 184);
-  // IPAddress gateway(192, 168, 1, 1);
-  // IPAddress subnet(255, 255, 255, 0);
-  // WiFi.config(local_IP, gateway, subnet);
 
-
-  const char* requiredFiles[] = {"/index.html", "/style.css", "/script.js", "/chart.js"};
-  for (int i = 0; i < 4; i++) {
+  const char* requiredFiles[] = {"/index.html", "/style.css", "/script.js", "/chart.js", "/chartjs-plugin-streaming.js", "/chartjs-adapter-date-fns.js", "/three.min.js", "/GLTFLoader.js", "dog.glb"};
+  for (int i = 0; i < 9; i++) {
     if (!SD.exists(requiredFiles[i])) {
       Serial.print("Missing file: "); Serial.println(requiredFiles[i]);
     }
@@ -135,7 +119,8 @@ void loop() {
   server.handleClient();
   webSocket.loop();
   static unsigned long lastLog = 0;
-  if (millis() - lastLog >= 1000) {
+  
+  if (millis() - lastLog >= 70) { //pull 10 data in 1 second
     char timeBuffer[64];
 
     // Fill timestamp
@@ -146,13 +131,15 @@ void loop() {
     mpu_dataAG(sensorData);
 
     // Print to serial
-    Serial.println("Temp C|Acc X      Y      Z |Gyro X    Y      Z  |AcAng X     Y |Angle X     Y     Z");
-    for (int i = 0; i < 12; i++) {
+    Serial.println("Sensor|Temp C|Acc X      Y      Z |Gyro X    Y      Z  |AcAng X     Y |Angle X     Y     Z");
+    for (int i = 0; i < 24; i++) {
+      if (i == 0) Serial.print("MPU A ");
+      if (i == 12) Serial.print("\nMPU B ");
       Serial.print(sensorData[i]);
-      Serial.print(i < 11 ? "," : "\n");
+      Serial.print(" ");
     }
+    Serial.println();
 
-    gps_data(); //print out gps data
 
     // Save to SD card
     
@@ -185,6 +172,7 @@ void loop() {
 
 void mpu_dataAG(char data[][10]) {
   mpu.update();
+  mpu1.update();
 
   dtostrf(mpu.getTemp(), 6, 2, data[0]);
   dtostrf(mpu.getAccX(), 6, 2, data[1]);
@@ -198,6 +186,20 @@ void mpu_dataAG(char data[][10]) {
   dtostrf(mpu.getAngleX(), 6, 2, data[9]);
   dtostrf(mpu.getAngleY(), 6, 2, data[10]);
   dtostrf(mpu.getAngleZ(), 6, 2, data[11]);
+
+  dtostrf(mpu1.getTemp(), 6, 2, data[12]);
+  dtostrf(mpu1.getAccX(), 6, 2, data[13]);
+  dtostrf(mpu1.getAccY(), 6, 2, data[14]);
+  dtostrf(mpu1.getAccZ(), 6, 2, data[15]);
+  dtostrf(mpu1.getGyroX(), 6, 2, data[16]);
+  dtostrf(mpu1.getGyroY(), 6, 2, data[17]);
+  dtostrf(mpu1.getGyroZ(), 6, 2, data[18]);
+  dtostrf(mpu1.getAccAngleX(), 6, 2, data[19]);
+  dtostrf(mpu1.getAccAngleY(), 6, 2, data[20]);
+  dtostrf(mpu1.getAngleX(), 6, 2, data[21]);
+  dtostrf(mpu1.getAngleY(), 6, 2, data[22]);
+  dtostrf(mpu1.getAngleZ(), 6, 2, data[23]);
+
 }
 
 void clock_time(char* buffer, size_t len) {
@@ -223,9 +225,15 @@ bool write_sd_array(const char* timeStr, char data[][10]) {
   if (myFile) {
     myFile.print(timeStr);
     myFile.print(",");
-    for (int i = 0; i < 12; i++) {
+    for (int i = 0; i < 24; i++) {
       myFile.print(data[i]);
-      myFile.print(i < 11 ? "," : "\n");
+      if (i == 11) {
+        myFile.print(";");
+      } else if (i < 23) {
+        myFile.print(",");
+      } else {
+        myFile.print("\n");
+      }
     }
     myFile.close();
     //digitalWrite(LED_PIN, LOW); // LED OFF after writing
@@ -243,7 +251,9 @@ void write_csv_header_if_needed() {
   if (!SD.exists("/test.txt")) {
     myFile = SD.open("/test.txt", FILE_WRITE);
     if (myFile) {
-      myFile.println("Time,Temp,AccX,AccY,AccZ,GyroX,GyroY,GyroZ,AccAngleX,AccAngleY,AngleX,AngleY,AngleZ");
+      myFile.println("Time,"
+        "A_Temp,A_AccX,A_AccY,A_AccZ,A_GyroX,A_GyroY,A_GyroZ,A_AccAngX,A_AccAngY,A_AngleX,A_AngleY,A_AngleZ;"
+        "B_Temp,B_AccX,B_AccY,B_AccZ,B_GyroX,B_GyroY,B_GyroZ,B_AccAngX,B_AccAngY,B_AngleX,B_AngleY,B_AngleZ");
       myFile.close();
     } else {
       Serial.println("Failed to create header.");
@@ -252,6 +262,7 @@ void write_csv_header_if_needed() {
     Serial.println("Log file already exists, not overwriting header.");
   }
 }
+
 
 void serveIndex() {
   File file = SD.open("/index.html");
@@ -275,6 +286,17 @@ void serveStyle() {
   }
 }
 
+void serveGLTFLoader() {
+  File file = SD.open("/GLTFLoader.js");
+  if (file) {
+    server.streamFile(file, "application/javascript");
+    file.close();
+  } else {
+    server.send(404, "text/plain", "GLTFLoader.js not found");
+  }
+}
+
+
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
     Serial.println("WebSocket client connected");
@@ -283,6 +305,15 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t leng
   }
 }
 
+void serveThreeJS() {
+  File file = SD.open("/three.min.js");
+  if (file) {
+    server.streamFile(file, "application/javascript");
+    file.close();
+  } else {
+    server.send(404, "text/plain", "three.min.js not found");
+  }
+}
 
 
 void setupWebServer() {
@@ -290,6 +321,12 @@ void setupWebServer() {
   server.on("/style.css", serveStyle);
   server.on("/script.js", serveScript);
   server.on("/chart.js", serveChartJS);
+  server.on("/chartjs-plugin-streaming.js", serveChartStreamJS);
+  server.on("/chartjs-adapter-date-fns.js", serveChartDateJS);
+  server.on("/three.min.js", serveThreeJS);
+  server.on("/GLTFLoader.js", serveGLTFLoader);
+  server.on("/dog.glb", serveDogModel);
+
 
   server.on("/toggleLogging", []() {
     loggingToggleRequested = true;
@@ -305,6 +342,24 @@ void setupWebServer() {
   webSocket.onEvent(onWebSocketEvent);
 }
 
+void serveChartStreamJS() {
+  File file = SD.open("/chartjs-plugin-streaming.js");
+  if (file) {
+    server.streamFile(file, "application/javascript");
+    file.close();
+  } else {
+    server.send(404, "text/plain", "chartjs-plugin-streaming.js not found");
+  }
+}
+void serveChartDateJS() {
+  File file = SD.open("/chartjs-adapter-date-fns.js");
+  if (file) {
+    server.streamFile(file, "application/javascript");
+    file.close();
+  } else {
+    server.send(404, "text/plain", "chartjs-adapter-date-fns.js not found");
+  }
+}
 void serveChartJS() {
   File file = SD.open("/chart.js");
   if (file) {
@@ -317,32 +372,45 @@ void serveChartJS() {
 
 
 void sendLiveDataToClient(const char* timeStr, char data[][10]) {
-  char liveData[256];  // Ensure this is large enough; increase if you add more data
+  char liveData[512];  // Make sure it's big enough
   int pos = 0;
 
-  // Start with the timestamp
-  pos += snprintf(liveData + pos, sizeof(liveData) - pos, "%s,", timeStr);
+  // Append timeStr + comma
+  for (int i = 0; timeStr[i] != '\0' && pos < sizeof(liveData) - 1; i++) {
+    liveData[pos++] = timeStr[i];
+  }
+  if (pos < sizeof(liveData) - 1) liveData[pos++] = ',';  // add comma
 
-  // Add sensor data
-  for (int i = 0; i < 12; i++) {
-    pos += snprintf(liveData + pos, sizeof(liveData) - pos, "%s", data[i]);
-    if (i < 11) {
-      pos += snprintf(liveData + pos, sizeof(liveData) - pos, ",");
+  // Append data array, separated by commas
+  for (int i = 0; i < 24 && pos < sizeof(liveData) - 1; i++) {
+    // Append each string in data[i]
+    for (int j = 0; data[i][j] != '\0' && pos < sizeof(liveData) - 1; j++) {
+      liveData[pos++] = data[i][j];
+    }
+
+    // Append comma except after last element
+    if (i < 23 && pos < sizeof(liveData) - 1) {
+      liveData[pos++] = ',';
     }
   }
 
-  // Add separator and GPS
-  pos += snprintf(liveData + pos, sizeof(liveData) - pos, ";\n%s,%s", gpsLat, gpsLng);
+  // Null terminate
+  liveData[pos] = '\0';
 
-  // Check WiFi client and send via WebSocket
-  if (WiFi.softAPgetStationNum() > 0) {
-    webSocket.broadcastTXT(liveData);
-  } else {
-    Serial.println("WiFi disconnected. WebSocket message not sent.");
-  }
+  // Broadcast
+  webSocket.broadcastTXT(liveData);
 }
 
 
+void serveDogModel() {
+  File file = SD.open("/dog.glb");
+  if (file) {
+    server.streamFile(file, "model/gltf-binary");
+    file.close();
+  } else {
+    server.send(404, "text/plain", "dog.glb not found");
+  }
+}
 
 void serveScript() {
   File file = SD.open("/script.js");
@@ -354,31 +422,4 @@ void serveScript() {
   }
 }
 
-bool gps_data() {
-  while (gpsSerial.available()) {
-    gps.encode(gpsSerial.read());
-  }
-
-  if (gps.location.isValid()) {
-    dtostrf(gps.location.lat(), 10, 6, gpsLat);
-    dtostrf(gps.location.lng(), 10, 6, gpsLng);
-    lastGPSUpdate = millis();
-    gpsAvailable = true;
-    Serial.print("\nGPS:");
-    Serial.print(gpsLat);
-    Serial.print(", ");
-    Serial.print(gpsLng);
-    return true;
-  } 
-  else {
-    // check for timeout
-    if (millis() - lastGPSUpdate > gpsTimeout) {
-      gpsAvailable = false;
-      strcpy(gpsLat, "NO_FIX");
-      strcpy(gpsLng, "NO_FIX");
-      Serial.println("GPS signal lost.");
-    }
-    return false;
-  }
-}
 
