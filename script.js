@@ -132,8 +132,32 @@ document.addEventListener("DOMContentLoaded", function () {
         let pitchB = parseFloat(parts[22]) * Math.PI / 180;
         let yawB = parseFloat(parts[23]) * Math.PI / 180;
 
+        // Update sensor cube rotations
         if (cubeA) cubeA.rotation.set(rollA, pitchA, yawA);
         if (cubeB) cubeB.rotation.set(rollB, pitchB, yawB);
+        
+        // Control leg movements based on sensor data
+        if (window.frontLegGroup && window.hindLegGroup) {
+            // Map sensor A (red) to front leg group movement
+            // Use pitch for forward/backward leg swing, roll for side tilt
+            const frontLegSwing = pitchA * 0.5; // Scale down the movement
+            const frontLegTilt = rollA * 0.3;
+            
+            window.frontLegGroup.rotation.x = frontLegSwing; // Forward/back swing
+            window.frontLegGroup.rotation.z = frontLegTilt;  // Side tilt
+            
+            // Map sensor B (blue) to hind leg group movement  
+            const hindLegSwing = pitchB * 0.5;
+            const hindLegTilt = rollB * 0.3;
+            
+            window.hindLegGroup.rotation.x = hindLegSwing; // Forward/back swing
+            window.hindLegGroup.rotation.z = hindLegTilt;  // Side tilt
+            
+            // Add some walking animation based on the difference between sensors
+            const walkCycle = (pitchA - pitchB) * 0.2;
+            window.frontLegGroup.rotation.y = Math.sin(Date.now() * 0.001 + walkCycle) * 0.1;
+            window.hindLegGroup.rotation.y = Math.sin(Date.now() * 0.001 + walkCycle + Math.PI) * 0.1;
+        }
      
         
 
@@ -170,9 +194,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function animate() {
         requestAnimationFrame(animate);
-        if (dog) renderer.render(scene, camera);
+        if (renderer && scene && camera) {
+            renderer.render(scene, camera);
+        }
     }
-    //animate();
     
 
     function initDogModel(containerId, modelUrl) {
@@ -180,52 +205,136 @@ document.addEventListener("DOMContentLoaded", function () {
         camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(400, 400); // Larger since only one dog
+        renderer.setClearColor(0x222222); // Set a dark gray background instead of black
         document.getElementById(containerId).appendChild(renderer.domElement);
     
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(2, 2, 5);
-        scene.add(light);
+        // Add ambient light for overall illumination
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.8);
+        scene.add(ambientLight);
+        
+        // Add directional light from multiple angles
+        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.6);
+        directionalLight1.position.set(5, 5, 5);
+        scene.add(directionalLight1);
+        
+        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+        directionalLight2.position.set(-5, 3, -5);
+        scene.add(directionalLight2);
+        
+        // Add point light for better illumination
+        const pointLight = new THREE.PointLight(0xffffff, 0.5, 100);
+        pointLight.position.set(0, 3, 0);
+        scene.add(pointLight);
+        
+        // Position camera closer for better view of the stick figure dog
+        camera.position.set(1.2, 0.8, 1.8); // Much closer - about 3x zoom in
+        camera.lookAt(0, 0.3, 0); // Look at the dog's body center
     
-        const loader = new THREE.GLTFLoader();
-        let spine005Found = false, spine009Found = false;
-        loader.load(modelUrl, function (gltf) {
-            dog = gltf.scene;
-            dog.scale.set(1.5, 1.5, 1.5);
-            scene.add(dog);
-    
-            gltf.scene.traverse((child) => {
-                if (child.isBone) {
-
-                        console.log("Found bone:", child.name);  // <-- ADD THIS LINE
-                
-                    if (child.name === "spine005_34") {
-                        spine005Found = true;
-                        const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-                        const mat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5 });
-                        cubeA = new THREE.Mesh(geo, mat);
-                        cubeA.position.set(0, 0.2, 0);
-                        child.add(cubeA);
-                    }
-                    if (child.name === "spine009_8") {
-                        spine009Found = true;
-                        const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-                        const mat = new THREE.MeshBasicMaterial({ color: 0x0000ff, transparent: true, opacity: 0.5 });
-                        cubeB = new THREE.Mesh(geo, mat);
-                        cubeB.position.set(0, 0.2, 0);
-                        child.add(cubeB);
-                    }
-                }
-            });
-
-
-            if (!spine005Found || !spine009Found) {
-                console.warn("Bone(s) not found:", { spine005Found, spine009Found });
-            }
-    
-            animate();
-        });
-    
-        camera.position.z = 5;
+        // Create stick figure dog model with controllable legs
+        console.log('Initializing stick figure dog model...');
+        dog = new THREE.Group();
+        
+        // Materials
+        const bodyMat = new THREE.MeshPhongMaterial({ color: 0x654321 });
+        const jointMat = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+        const legMat = new THREE.MeshPhongMaterial({ color: 0x654321 });
+        
+        // Main body (spine)
+        const bodyGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.2);
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.rotation.z = Math.PI / 2; // Make horizontal
+        body.position.set(0, 0.3, 0);
+        dog.add(body);
+        
+        // Head
+        const headGeo = new THREE.SphereGeometry(0.15);
+        const head = new THREE.Mesh(headGeo, jointMat);
+        head.position.set(0.7, 0.3, 0);
+        dog.add(head);
+        
+        // Create leg groups that can rotate
+        // Front legs (controlled by sensor A - red)
+        const frontLegGroup = new THREE.Group();
+        frontLegGroup.position.set(0.4, 0.3, 0); // Front of dog
+        
+        // Front leg joints (shoulders)
+        const frontJointL = new THREE.Mesh(new THREE.SphereGeometry(0.06), jointMat);
+        frontJointL.position.set(0, 0, 0.2);
+        frontLegGroup.add(frontJointL);
+        
+        const frontJointR = new THREE.Mesh(new THREE.SphereGeometry(0.06), jointMat);
+        frontJointR.position.set(0, 0, -0.2);
+        frontLegGroup.add(frontJointR);
+        
+        // Front legs
+        const frontLegLGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.6);
+        const frontLegL = new THREE.Mesh(frontLegLGeo, legMat);
+        frontLegL.position.set(0, -0.3, 0.2);
+        frontLegGroup.add(frontLegL);
+        
+        const frontLegR = new THREE.Mesh(frontLegLGeo, legMat);
+        frontLegR.position.set(0, -0.3, -0.2);
+        frontLegGroup.add(frontLegR);
+        
+        dog.add(frontLegGroup);
+        
+        // Hind legs (controlled by sensor B - blue)
+        const hindLegGroup = new THREE.Group();
+        hindLegGroup.position.set(-0.4, 0.3, 0); // Back of dog
+        
+        // Hind leg joints (hips)
+        const hindJointL = new THREE.Mesh(new THREE.SphereGeometry(0.06), jointMat);
+        hindJointL.position.set(0, 0, 0.2);
+        hindLegGroup.add(hindJointL);
+        
+        const hindJointR = new THREE.Mesh(new THREE.SphereGeometry(0.06), jointMat);
+        hindJointR.position.set(0, 0, -0.2);
+        hindLegGroup.add(hindJointR);
+        
+        // Hind legs
+        const hindLegLGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.6);
+        const hindLegL = new THREE.Mesh(hindLegLGeo, legMat);
+        hindLegL.position.set(0, -0.3, 0.2);
+        hindLegGroup.add(hindLegL);
+        
+        const hindLegR = new THREE.Mesh(hindLegLGeo, legMat);
+        hindLegR.position.set(0, -0.3, -0.2);
+        hindLegGroup.add(hindLegR);
+        
+        dog.add(hindLegGroup);
+        
+        // Tail
+        const tailGeo = new THREE.CylinderGeometry(0.03, 0.02, 0.3);
+        const tail = new THREE.Mesh(tailGeo, bodyMat);
+        tail.position.set(-0.7, 0.4, 0);
+        tail.rotation.z = -Math.PI / 6; // Slightly angled up
+        dog.add(tail);
+        
+        scene.add(dog);
+        
+        // Store leg group references for animation
+        window.frontLegGroup = frontLegGroup;
+        window.hindLegGroup = hindLegGroup;
+        
+        // Create sensor cubes positioned above the leg groups
+        const geoA = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+        const matA = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 });
+        cubeA = new THREE.Mesh(geoA, matA);
+        cubeA.position.set(0, 0.15, 0); // Above front legs
+        frontLegGroup.add(cubeA);
+        
+        const geoB = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+        const matB = new THREE.MeshBasicMaterial({ color: 0x0000ff, transparent: true, opacity: 0.8 });
+        cubeB = new THREE.Mesh(geoB, matB);
+        cubeB.position.set(0, 0.15, 0); // Above hind legs
+        hindLegGroup.add(cubeB);
+        
+        console.log('Created stick figure dog model with controllable legs');
+        console.log('Stick figure model: Red sensor controls front legs, Blue sensor controls hind legs');
+        console.log('Leg movement based on gyro pitch (forward/back) and roll (tilt)');
+        
+        // Start animation
+        animate();
     
     }
     
