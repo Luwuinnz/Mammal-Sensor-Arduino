@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Testing Webserver for ESP32 Dog Sensor</title>
+
+    <!-- Load local CSS from SD card -->
+    <link rel="stylesheet" href="/style.css" />
+
+    <!-- Load Chart.js LOCALLY from SD card -->
+    <script src="/chart.js"></script>
+    <script src="/chartjs-plugin-streaming.js"></script>
+    <script src="/chartjs-adapter-date-fns.js"></script>
+    <script src="/three.min.js"></script>
+
+    <script src="/GLTFLoader.js"></script> <!-- Also put this on SD card -->
+
+    <!-- Load your script.js from SD card -->
+    <script src="/script.js" defer></script>
+    <link rel="icon" href="data:,">
+  
+
+</head>
+
+<body>
+    <div id="head1"> 
+        <h1>Dog Monitor</h1>
+        <hr class="horizontal_line" id="line" />
+        <h1>Dog Sensor Readings</h1>
+    </div>
+    
+    <div id="body1"> 
+        <div id="rawDataDisplay" style="margin-top: 10px; font-family: monospace; color: black; font-size: 20px;">
+            <strong>Latest Raw Data:</strong>
+            <pre id="rawDataText">Waiting for data...</pre>
+        </div>
+
+        <h2 class="h2">Live Graph Accelerometer MPUA</h2>
+        <div class="box">
+            <canvas id="liveChart" width="400" height="200"></canvas>
+
+        </div>
+
+        <h2 class="h2">Live Graph Accelerometer MPUB</h2>
+        <div class="box">
+            <canvas id="liveChart2" width="400" height="200"></canvas>
+        </div>
+
+        
+    </div>
+
+    <div style="margin: 20px; font-family: monospace; font-size: 18px;">
+        <button id="toggleLoggingBtn" class="logging-on">Pause Logging</button>
+        <p id="loggingStatus">Logging...</p>
+    </div>
+
+    <div style="display: flex; gap: 20px;">
+        <div>
+            <h3 style="text-align: center;">3D Orientation: MPU A</h3>
+            <div id="rendererA" style="width: 100%; height: 400px;"></div>
+        </div>
+    </div>    
+      
+</body>
+</html>

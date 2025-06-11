@@ -1,0 +1,82 @@
+#head1{
+    font-size: 8px;
+    font-family:verdana;
+    display : flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    flex-grow: 1; 
+}
+
+.h2{
+    font-size: 14px;
+    font-family:verdana;
+}
+
+.horizontal_line {
+    width: 100%;
+    height: 4px;
+    border: 5px dotted black;
+    line-height: 80%;
+}
+
+#body1 {
+    grid-template-columns: 500px 300px;
+    grid-template-rows: auto auto;
+    display: flex;
+    flex-direction: column;
+
+    align-items: flex-start;
+    gap: 20px;
+    padding: 10px;
+}
+
+
+.box, .box2 {
+    height: 300px;
+    background-color: #f8fad1;
+    font-size: 32px;
+    
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    color: rgb(0, 0, 0);
+}
+
+.box {
+    width: 700px;
+}
+
+button {
+    padding: 10px 15px;
+    font-size: 20px;
+    font-family: monospace;
+    background-color: #af4caa;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+button:hover {
+    background-color: #adafad;
+}
+
+#toggleLoggingBtn {
+    padding: 10px 20px;
+    font-size: 16px;
+    border: none;
+    border-radius: 5px;
+    color: white;
+    cursor: pointer;
+}
+
+.logging-on {
+    background-color: #84dc87; /* Green */
+}
+
+.logging-off {
+    background-color: #fd837a; /* Red */
+}
+
+
