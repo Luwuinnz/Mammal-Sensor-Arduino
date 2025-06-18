@@ -140,7 +140,6 @@ void loop() {
     }
     Serial.println();
 
-
     // Save to SD card
     
     if (enableLogging) {
@@ -421,5 +420,3 @@ void serveScript() {
     server.send(404, "text/plain", "script.js not found");
   }
 }
-
-
