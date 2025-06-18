@@ -14,6 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 from pytorch_tcn import TCN # Temporal Convolution Network
 from ahrs.filters import Madgwick
 
+#------------------------------------
 
 #Ask if we want to filter noise and what Hz to resample to
 class CleanPreprocessor:
