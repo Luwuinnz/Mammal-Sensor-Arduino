@@ -4,6 +4,7 @@
 #include <Bonezegei_DS3231.h>
 #include <SD.h>
 #include <SPI.h>
+#include "time.h"
 
 // TwoWire Wire1 = TwoWire(1);  // Custom I2C bus
 MPU6050 mpu1(Wire1);         // Second MPU on Wire1 (I2C1)
@@ -16,6 +17,11 @@ MPU6050 mpu1(Wire1);         // Second MPU on Wire1 (I2C1)
 //wifi esp32 integration
 const char* ssid = "ESP32_DataLogger";
 const char* password = "esp32log";
+
+//setup for time constants
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 0 // adjust for timezone
+const int daylightOffset_sec = 0; //adjust if needed
 
 WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
@@ -110,6 +116,7 @@ void setup() {
   // Start Web Server and WebSocket
   setupWebServer();
 
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer); //added for ntp
 
   // Optional: Write header
   write_csv_header_if_needed();
@@ -143,6 +150,15 @@ void loop() {
     // Save to SD card
     
     if (enableLogging) {
+    //get current time
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    Serial.printf("Recording START time (NTP): %04d-%02d-%02d %02d:%02d:%02d\n",
+        timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+        timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+
     if (write_sd_array(timeBuffer, sensorData)) {
       Serial.println("\nData written to SD card.");
     } else {
