@@ -35,11 +35,11 @@ class DogTCNModel(nn.Module):
         super().__init__()
 
         #to create the TCN with a 6-channel motion sequence
-        self.tcn = TCN(input_size = 6,
-                       output_size = tcn_channels[-1],
+        self.tcn = TCN(num_inputs = 6,
+                       num_channels = tcn_channels,
                        kernel_size = 3,
-                       droupout = 0.1,
-                       casual = False)
+                       dropout = 0.1
+                       )
         #kernel_size is the maginfying glass (this frame, one before, and one after)
         #dropout, hides 10% of internal activations, prevent over-fitting(memorization vs leaning)
         #casual = False, means we can look at the frames after
@@ -56,7 +56,7 @@ class DogTCNModel(nn.Module):
         self.meta_fc = nn.Sequential(
             nn.Linear(breed_emb + 2, 32), #16(breed) + 1(age) + 1(sex) = 18, scaled to 32
             nn.ReLU(), #changes neg # to 0s
-            nn.Drouput(0.1) #prevents overfitting, by setting 10% to 0s
+            nn.Dropout(0.1) #prevents overfitting, by setting 10% to 0s
         )
 
         #CrossEntropyloss, concatenating the 64 motion features and 32 static
@@ -68,23 +68,23 @@ class DogTCNModel(nn.Module):
         )
 
         #Forward pass
-        def forward(self, seq: torch.Tensor, meta: Dict[str, torch.Tensor]):
-            #outputs a 64-number fingerprint of the dog's motion
-            ts = self.pool(self.tcn(seq)).squeeze(-1)
-            #self.tcn(seq) runs the whole IMU data through TCN
-            #self.pool() - average over time to get one vector per dog
-            #.squeeze(-1) - drops length dimension
+    def forward(self, seq: torch.Tensor, meta: Dict[str, torch.Tensor]):
+        #outputs a 64-number fingerprint of the dog's motion
+        ts = self.pool(self.tcn(seq)).squeeze(-1)
+        #self.tcn(seq) runs the whole IMU data through TCN
+        #self.pool() - average over time to get one vector per dog
+        #.squeeze(-1) - drops length dimension
 
-            #turn the dogbreed ID into learned embedding evctor
-            #meta['breed'] holds each dog's breed ID
-            #looks up the integer in the table and gives the vector from dict
-            breed_vec = self.breed_emb(meta['breed'])
+        #turn the dogbreed ID into learned embedding evctor
+        #meta['breed'] holds each dog's breed ID
+        #looks up the integer in the table and gives the vector from dict
+        breed_vec = self.breed_emb(meta['breed'])
 
-            #unsqueeze adds an additional dimension for concat
-            #creates a 32-number summary for each dog based on breed, sex,age
-            static = self.meta_fc(torch.cat([breed_vec,
-                                             meta['sex'].unsqueeze(1).float(),
-                                             meta['age'].unsqueeze(1)], dim=1))
-            #run through mini-MLP to get a 32-number static feature vect
-            fused = torch.cat([ts, static], dim =1)
-            return self.final(fused)
+        #unsqueeze adds an additional dimension for concat
+        #creates a 32-number summary for each dog based on breed, sex,age
+        static = self.meta_fc(torch.cat([breed_vec,
+                                            meta['sex'].unsqueeze(1).float(),
+                                            meta['age'].unsqueeze(1)], dim=1))
+        #run through mini-MLP to get a 32-number static feature vect
+        fused = torch.cat([ts, static], dim =1)
+        return self.final(fused)
