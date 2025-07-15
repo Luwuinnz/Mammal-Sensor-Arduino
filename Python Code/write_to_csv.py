@@ -1,53 +1,54 @@
 import csv
-import websocket
 
-CSV_FILE = "live_data.csv"
+# Edit as needed
+input_file = "E:/test.txt"      # Path to SD log
+output_file = "cleaned_data.csv"  # New file
 
+#change this
+default_class = "unknown"  
 
-# Write the header only once
-def write_header():
-    # Change the column names if needed
-    header = [
-        "Timestamp",      # adjust if first value is a timestamp, otherwise name as you want
-        "A_Temp", "A_AccX", "A_AccY", "A_AccZ",
-        "A_GyroX", "A_GyroY", "A_GyroZ", "A_AccAngleX", "A_AccAngleY", "A_AngleX", "A_AngleY", "A_AngleZ",
-        "B_Temp", "B_AccX", "B_AccY", "B_AccZ",
-        "B_GyroX", "B_GyroY", "B_GyroZ", "B_AccAngleX", "B_AccAngleY", "B_AngleX", "B_AngleY", "B_AngleZ"
-    ]
-    try:
-        with open(CSV_FILE, "x", newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(header)
-    except FileExistsError:
-        pass  # File already exists; don't write header
+# Indexes, adjust if needed
 
-def on_message(ws, message):
-    parts = message.strip().split(",")
-    print("Received:", parts)
-    with open(CSV_FILE, "a", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(parts)
+MPU_A_AccX_idx = 2
+MPU_A_AccY_idx = 3
+MPU_A_AccZ_idx = 4
 
-def on_error(ws, error):
-    print("Error:", error)
+MPU_B_AccX_idx = 14
+MPU_B_AccY_idx = 15
+MPU_B_AccZ_idx = 16
 
-def on_close(ws, close_status_code, close_msg):
-    print("WebSocket closed")
+with open(input_file, "r") as infile, open(output_file, "w", newline='') as outfile:
+    reader = csv.reader(infile)
+    writer = csv.writer(outfile)
 
-def on_open(ws):
-    print("Connected to ESP32 WebSocket!")
+    # Write header for new CSV
+    writer.writerow([
+        "MPU_A_AccX", "MPU_A_AccY", "MPU_A_AccZ",
+        "MPU_B_AccX", "MPU_B_AccY", "MPU_B_AccZ",
+        "class"
+    ])
 
-if __name__ == "__main__":
-    ESP32_IP = "192.168.12.3"  # change this if needed
-    WS_URL = f"ws://{ESP32_IP}:81/"
+    for i, row in enumerate(reader):
+        # Skip rows that are too short
+        if i == 0 and not row[0].replace('.', '', 1).isdigit():
+            continue
+        if len(row) < max(MPU_B_AccZ_idx+1, MPU_A_AccZ_idx+1):
+            continue
 
-    write_header()
-    ws = websocket.WebSocketApp(
-        WS_URL,
-        on_open=on_open,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close
-    )
-    ws.run_forever()
+        try:
+            # Extract the six sensor values
+            A_AccX = row[MPU_A_AccX_idx]
+            A_AccY = row[MPU_A_AccY_idx]
+            A_AccZ = row[MPU_A_AccZ_idx]
+            B_AccX = row[MPU_B_AccX_idx]
+            B_AccY = row[MPU_B_AccY_idx]
+            B_AccZ = row[MPU_B_AccZ_idx]
+        except IndexError:
+            continue
 
+        # change this later
+        disease_label = default_class
+
+        writer.writerow([A_AccX, A_AccY, A_AccZ, B_AccX, B_AccY, B_AccZ, disease_label])
+
+print(f"Saved cleaned data to {output_file}")
