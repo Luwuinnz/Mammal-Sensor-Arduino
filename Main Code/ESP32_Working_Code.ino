@@ -1,170 +1,170 @@
-//Adruino Module libraries
-#include "Wire.h"
+// ESP32-C3 Dual MPU6050 on One I2C Bus (GPIO 6 = SDA, GPIO 7 = SCL)
+#define CORE_DEBUG_LEVEL 0 //make sure to have core debug level in tools set to None
+#include <Wire.h>
 #include <MPU6050_light.h>
-#include <Bonezegei_DS3231.h>
 #include <SD.h>
 #include <SPI.h>
-
-// TwoWire Wire1 = TwoWire(1);  // Custom I2C bus
-MPU6050 mpu1(Wire1);         // Second MPU on Wire1 (I2C1)
-
-//ESP#@ Webserver libraries
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 
-//wifi esp32 integration
+// #define I2C_SDA 6
+// #define I2C_SCL 7
+#define LED_PIN 20
+
+#define I2C_SDA 6
+#define I2C_SCL 7
+//#define LED_PIN 10
+
+// New SD Pin Configuration
+#define SD_CS    2  // Chip Select
+#define SD_SCK   3  // Clock
+#define SD_MOSI  4  // Master Out
+#define SD_MISO  5  // Master In
+
+String folderPath = "/dog_files";
+int fileCount = 0;
+String newFileName;
+
+String logFileName = "";
+int logFileNumber = 0;
+
+MPU6050 mpu(Wire);         // MPU at 0x68
+MPU6050 mpu1(Wire);        // MPU at 0x69
+
+String dogName = "unknownDog";  // default name
+
 const char* ssid = "ESP32_DataLogger";
 const char* password = "esp32log";
 
 WebServer server(80);
-WebSocketsServer webSocket = WebSocketsServer(81);
+WebSocketsServer webSocket(81);
 
-// Sensor and RTC setup
-MPU6050 mpu(Wire);
-Bonezegei_DS3231 rtc(0x68);
-
-// SD card config
-const int chipSelect = 5; // SD card CS pin
-File myFile;
-
-// I2C Pins for ESP32
-#define I2C_SDA 21
-#define I2C_SCL 22
-
-#define LED_PIN 2
 bool enableLogging = true;
 bool loggingToggleRequested = false;
-
 char sensorData[24][10];
+File myFile;
+
+unsigned long startTime = 0;
 
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+
+
+  while (!Serial) {
+    delay(10);
+  }
+
+  delay(5000);
   Serial.println("Booting...");
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-
-  // Initialize I2C
   Wire.begin(I2C_SDA, I2C_SCL);
-  Wire1.begin(25, 26); // SDA=25, SCL=26 (choose unused pins on your board)
 
-
-  // Initialize SD card
-  if (!SD.begin(chipSelect)) {
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI);
+  if (!SD.begin(SD_CS)) {
     Serial.println("SD init failed!");
     while (true);
   }
   Serial.println("SD init done.");
 
-  // Init MPU6050
-  byte status = mpu.begin();
-  Serial.print(F("MPU6050 A status: "));
-  Serial.println(status);
-  while (status != 0) { delay(500); } // Retry until MPU connects
+  // Create folder if missing
+  if (!SD.exists(folderPath)) {
+    SD.mkdir(folderPath);
+    Serial.println("Created /dog_files folder.");
+  }
 
-  Serial.println(F("Calculating offsets, do not move MPU6050"));
-  delay(1000);
+  Serial.println("Enter dog name (or press Enter to skip):");
+  while (Serial.available() == 0) { delay(100); }
+  dogName = Serial.readStringUntil('\n');
+  dogName.trim();
+  if (dogName.length() == 0) dogName = "unknownDog";
+  Serial.print("Dog name set to: "); Serial.println(dogName);
+ 
+  generateNewLogFileName();
+  write_csv_header_if_needed();
+
+
+
+  //byte status = mpu.begin();
+  mpu.setAddress(0x68);
+  byte status = mpu.begin();  // ✅ correct usage
+
+  Serial.print(F("MPU6050 0x68 status: ")); Serial.println(status);
+  while (status != 0) delay(500);
+  //Serial.print("m");
   mpu.calcOffsets(true, true);
-  Serial.println("\nMPU6050 A ready!");
+  //Serial.print("n");
+  //byte status1 = mpu1.begin(0x69);
+  mpu1.setAddress(0x69);
+  byte status1 = mpu1.begin();  // ✅ correct usage
+  //Serial.print("o");
 
-  byte status1 = mpu1.begin();
-  Serial.print(F("\nMPU6050 B status: "));
-  Serial.println(status1);
-  while (status1 != 0) { delay(500); } // Retry until MPU connects
+  Serial.print(F("MPU6050 0x69 status: ")); Serial.println(status1);
+  //Serial.print("p");
+  while (status1 != 0) delay(500);
+  //Serial.print("q");
 
-  Serial.println(F("Calculating offsets, do not move MPU6050"));
-  delay(1000);
   mpu1.calcOffsets(true, true);
-  Serial.println("\nMPU6050 B ready!");
 
+  //Serial.print("r");
 
-  // Init RTC
-  if (!rtc.begin()) {
-    Serial.println("RTC not found.");
-  }
+  //setupWebServer();
 
+  //Serial.print("s");
+  write_csv_header_if_needed();
 
+  //Serial.print("t");
 
-  const char* requiredFiles[] = {"/index.html", "/style.css", "/script.js", "/chart.js", "/chartjs-plugin-streaming.js", "/chartjs-adapter-date-fns.js", "/three.min.js", "/GLTFLoader.js", "dog.glb"};
-  for (int i = 0; i < 9; i++) {
-    if (!SD.exists(requiredFiles[i])) {
-      Serial.print("Missing file: "); Serial.println(requiredFiles[i]);
-    }
-  }
-  // ---------- Access Point Configuration ----------
-  IPAddress local_IP(192, 168, 12, 3);
-  IPAddress gateway(192, 168, 12, 1);
-  IPAddress subnet(255, 255, 255, 0);
-
-  WiFi.softAPConfig(local_IP, gateway, subnet);
+  WiFi.softAPConfig(IPAddress(192,168,12,3), IPAddress(192,168,12,1), IPAddress(255,255,255,0));
+  //Serial.print("u");
   WiFi.softAP(ssid, password);
+  //Serial.print("v");
 
   Serial.println("Access Point started.");
-  Serial.print("AP IP address: ");
+  //Serial.print("w");
   Serial.println(WiFi.softAPIP());
-
-  // Start Web Server and WebSocket
+  //Serial.print("x");
   setupWebServer();
 
 
-  // Optional: Write header
-  write_csv_header_if_needed();
+  startTime = millis();  // record moment logging starts
+
 }
 
 void loop() {
   server.handleClient();
   webSocket.loop();
   static unsigned long lastLog = 0;
-  
-  if (millis() - lastLog >= 70) { //pull 10 data in 1 second
+
+  if (millis() - lastLog >= 70) {
     char timeBuffer[64];
-
-    // Fill timestamp
     clock_time(timeBuffer, sizeof(timeBuffer));
-    Serial.println(timeBuffer);
-
-    // Fill MPU data
     mpu_dataAG(sensorData);
 
-    // Print to serial
-    Serial.println("Sensor|Temp C|Acc X      Y      Z |Gyro X    Y      Z  |AcAng X     Y |Angle X     Y     Z");
+    Serial.print("MPU A & B data @ "); Serial.println(timeBuffer);
     for (int i = 0; i < 24; i++) {
-      if (i == 0) Serial.print("MPU A ");
-      if (i == 12) Serial.print("\nMPU B ");
-      Serial.print(sensorData[i]);
-      Serial.print(" ");
+      Serial.print(sensorData[i]); Serial.print(" ");
     }
     Serial.println();
 
-    // Save to SD card
-    
     if (enableLogging) {
-    if (write_sd_array(timeBuffer, sensorData)) {
-      Serial.println("\nData written to SD card.");
+      if (write_sd_array(timeBuffer, sensorData)) Serial.println("Data written to SD");
+      else Serial.println("SD write failed");
     } else {
-      Serial.println("Error writing to SD card.");
+      digitalWrite(LED_PIN, LOW);
+      Serial.println("Logging paused");
     }
-  } else {
-    digitalWrite(LED_PIN, LOW);
-    Serial.println("\nData not logged: SD card writing is paused.");
-  }
 
-  // SAFELY toggle after logging completes
-  if (loggingToggleRequested) {
-    enableLogging = !enableLogging;
-    loggingToggleRequested = false;
-    Serial.println(enableLogging ? "Logging ENABLED" : "Logging DISABLED");
-  }
+    if (loggingToggleRequested) {
+      enableLogging = !enableLogging;
+      loggingToggleRequested = false;
+    }
 
-
-    sendLiveDataToClient(timeBuffer,sensorData);
-
-
-    Serial.println("\n==============\n");
+    sendLiveDataToClient(timeBuffer, sensorData);
     lastLog = millis();
   }
 }
@@ -174,11 +174,11 @@ void mpu_dataAG(char data[][10]) {
   mpu1.update();
 
   dtostrf(mpu.getTemp(), 6, 2, data[0]);
-  dtostrf(mpu.getAccX(), 6, 2, data[1]);
-  dtostrf(mpu.getAccY(), 6, 2, data[2]);
+  dtostrf(mpu.getAccY(), 6, 2, data[1]);
+  dtostrf(-mpu.getAccX(), 6, 2, data[2]);
   dtostrf(mpu.getAccZ(), 6, 2, data[3]);
-  dtostrf(mpu.getGyroX(), 6, 2, data[4]);
-  dtostrf(mpu.getGyroY(), 6, 2, data[5]);
+  dtostrf(mpu.getGyroY(), 6, 2, data[4]);
+  dtostrf(-mpu.getGyroX(), 6, 2, data[5]);
   dtostrf(mpu.getGyroZ(), 6, 2, data[6]);
   dtostrf(mpu.getAccAngleX(), 6, 2, data[7]);
   dtostrf(mpu.getAccAngleY(), 6, 2, data[8]);
@@ -187,236 +187,169 @@ void mpu_dataAG(char data[][10]) {
   dtostrf(mpu.getAngleZ(), 6, 2, data[11]);
 
   dtostrf(mpu1.getTemp(), 6, 2, data[12]);
-  dtostrf(mpu1.getAccX(), 6, 2, data[13]);
-  dtostrf(mpu1.getAccY(), 6, 2, data[14]);
+  dtostrf(mpu1.getAccY(), 6, 2, data[13]);
+  dtostrf(-mpu1.getAccX(), 6, 2, data[14]);
   dtostrf(mpu1.getAccZ(), 6, 2, data[15]);
-  dtostrf(mpu1.getGyroX(), 6, 2, data[16]);
-  dtostrf(mpu1.getGyroY(), 6, 2, data[17]);
+  dtostrf(mpu1.getGyroY(), 6, 2, data[16]);
+  dtostrf(-mpu1.getGyroX(), 6, 2, data[17]);
   dtostrf(mpu1.getGyroZ(), 6, 2, data[18]);
   dtostrf(mpu1.getAccAngleX(), 6, 2, data[19]);
   dtostrf(mpu1.getAccAngleY(), 6, 2, data[20]);
   dtostrf(mpu1.getAngleX(), 6, 2, data[21]);
   dtostrf(mpu1.getAngleY(), 6, 2, data[22]);
   dtostrf(mpu1.getAngleZ(), 6, 2, data[23]);
-
 }
+
+// void clock_time(char* buffer, size_t len) {
+//   unsigned long ms = millis();
+//   unsigned long s = ms / 1000, m = s / 60, h = m / 60;
+//   snprintf(buffer, len, "Uptime %02lu:%02lu:%02lu", h % 24, m % 60, s % 60);
+// }
 
 void clock_time(char* buffer, size_t len) {
-  if (rtc.getTime()) {
-    snprintf(buffer, len, "Time %02d:%02d:%02d Date %02d-%02d-%d",
-             rtc.getHour(), rtc.getMinute(), rtc.getSeconds(),
-             rtc.getMonth(), rtc.getDate(), rtc.getYear());
-  } 
-  else {
-    strncpy(buffer, "RTC Error", len);
-  }
+  unsigned long ms = millis() - startTime;  // elapsed time since data logging started
+  unsigned long s = ms / 1000, m = s / 60, h = m / 60;
+  snprintf(buffer, len, "Uptime %02lu:%02lu:%02lu", h % 24, m % 60, s % 60);
 }
 
+
 bool write_sd_array(const char* timeStr, char data[][10]) {
-  if (!enableLogging){
-    digitalWrite(LED_PIN, LOW);
-    return false;
-    }
+  if (!enableLogging) return false;
+  digitalWrite(LED_PIN, HIGH);
 
-  digitalWrite(LED_PIN, HIGH); // LED ON while writing
-  myFile = SD.open("/test.txt", FILE_APPEND);
+  myFile = SD.open(logFileName.c_str(), FILE_APPEND);
 
+  //myFile = SD.open("/test.txt", FILE_APPEND);
   if (myFile) {
-    myFile.print(timeStr);
-    myFile.print(",");
+    myFile.print(timeStr); myFile.print(",");
     for (int i = 0; i < 24; i++) {
       myFile.print(data[i]);
-      if (i == 11) {
-        myFile.print(";");
-      } else if (i < 23) {
-        myFile.print(",");
-      } else {
-        myFile.print("\n");
-      }
+      myFile.print((i == 11) ? ";" : (i < 23 ? "," : "\n"));
     }
     myFile.close();
-    //digitalWrite(LED_PIN, LOW); // LED OFF after writing
     return true;
   } 
   else {
-    digitalWrite(LED_PIN, LOW); // LED OFF on failure
+    // Blink visibly on failure
+    for (int i = 0; i < 5; i++) {  // Blink 5 times
+      digitalWrite(LED_PIN, HIGH);
+      delay(150);  // LED ON duration
+      digitalWrite(LED_PIN, LOW);
+      delay(150);  // LED OFF duration
+    }
     return false;
   }
 }
 
-
-
 void write_csv_header_if_needed() {
-  if (!SD.exists("/test.txt")) {
-    myFile = SD.open("/test.txt", FILE_WRITE);
-    if (myFile) {
-      myFile.println("Time,"
-        "A_Temp,A_AccX,A_AccY,A_AccZ,A_GyroX,A_GyroY,A_GyroZ,A_AccAngX,A_AccAngY,A_AngleX,A_AngleY,A_AngleZ;"
-        "B_Temp,B_AccX,B_AccY,B_AccZ,B_GyroX,B_GyroY,B_GyroZ,B_AccAngX,B_AccAngY,B_AngleX,B_AngleY,B_AngleZ");
-      myFile.close();
-    } else {
-      Serial.println("Failed to create header.");
-    }
+  myFile = SD.open(logFileName.c_str(), FILE_WRITE);
+  if (myFile) {
+    myFile.println("Time,A_Temp,A_AccX,A_AccY,A_AccZ,A_GyroX,A_GyroY,A_GyroZ,A_AccAngX,A_AccAngY,A_AngleX,A_AngleY,A_AngleZ;B_Temp,B_AccX,B_AccY,B_AccZ,B_GyroX,B_GyroY,B_GyroZ,B_AccAngX,B_AccAngY,B_AngleX,B_AngleY,B_AngleZ");
+    myFile.close();
+    Serial.print("New log file created with header: ");
+    Serial.println(logFileName);
   } else {
-    Serial.println("Log file already exists, not overwriting header.");
-  }
-}
-
-
-void serveIndex() {
-  File file = SD.open("/index.html");
-  if (file) {
-    server.streamFile(file, "text/html");
-    file.close();
-  } else {
-    Serial.println("Failed to open /index.html");
-    server.send(404, "text/plain", "index.html not found");
-  }
-}
-
-
-void serveStyle() {
-  File file = SD.open("/style.css");
-  if (file) {
-    server.streamFile(file, "text/css");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "style.css not found");
-  }
-}
-
-void serveGLTFLoader() {
-  File file = SD.open("/GLTFLoader.js");
-  if (file) {
-    server.streamFile(file, "application/javascript");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "GLTFLoader.js not found");
-  }
-}
-
-
-void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-  if (type == WStype_CONNECTED) {
-    Serial.println("WebSocket client connected");
-  } else if (type == WStype_DISCONNECTED) {
-    Serial.println("WebSocket client disconnected");
-  }
-}
-
-void serveThreeJS() {
-  File file = SD.open("/three.min.js");
-  if (file) {
-    server.streamFile(file, "application/javascript");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "three.min.js not found");
-  }
-}
-
-
-void setupWebServer() {
-  server.on("/", serveIndex);
-  server.on("/style.css", serveStyle);
-  server.on("/script.js", serveScript);
-  server.on("/chart.js", serveChartJS);
-  server.on("/chartjs-plugin-streaming.js", serveChartStreamJS);
-  server.on("/chartjs-adapter-date-fns.js", serveChartDateJS);
-  server.on("/three.min.js", serveThreeJS);
-  server.on("/GLTFLoader.js", serveGLTFLoader);
-  server.on("/dog.glb", serveDogModel);
-
-
-  server.on("/toggleLogging", []() {
-    loggingToggleRequested = true;
-    server.send(200, "text/plain", enableLogging ? "Turning OFF..." : "Turning ON...");
-  });
-
-  server.on("/loggingStatus", []() {
-    server.send(200, "text/plain", enableLogging ? "on" : "off");
-  });
-
-  server.begin();
-  webSocket.begin();
-  webSocket.onEvent(onWebSocketEvent);
-}
-
-void serveChartStreamJS() {
-  File file = SD.open("/chartjs-plugin-streaming.js");
-  if (file) {
-    server.streamFile(file, "application/javascript");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "chartjs-plugin-streaming.js not found");
-  }
-}
-void serveChartDateJS() {
-  File file = SD.open("/chartjs-adapter-date-fns.js");
-  if (file) {
-    server.streamFile(file, "application/javascript");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "chartjs-adapter-date-fns.js not found");
-  }
-}
-void serveChartJS() {
-  File file = SD.open("/chart.js");
-  if (file) {
-    server.streamFile(file, "application/javascript");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "chart.js not found");
+    Serial.println("Failed to create log file for header.");
   }
 }
 
 
 void sendLiveDataToClient(const char* timeStr, char data[][10]) {
-  char liveData[512];  // Make sure it's big enough
-  int pos = 0;
-
-  // Append timeStr + comma
-  for (int i = 0; timeStr[i] != '\0' && pos < sizeof(liveData) - 1; i++) {
-    liveData[pos++] = timeStr[i];
+  char liveData[512];
+  snprintf(liveData, sizeof(liveData), "%s", timeStr);
+  strcat(liveData, ",");
+  for (int i = 0; i < 24; i++) {
+    strcat(liveData, data[i]);
+    if (i < 23) strcat(liveData, ",");
   }
-  if (pos < sizeof(liveData) - 1) liveData[pos++] = ',';  // add comma
-
-  // Append data array, separated by commas
-  for (int i = 0; i < 24 && pos < sizeof(liveData) - 1; i++) {
-    // Append each string in data[i]
-    for (int j = 0; data[i][j] != '\0' && pos < sizeof(liveData) - 1; j++) {
-      liveData[pos++] = data[i][j];
-    }
-
-    // Append comma except after last element
-    if (i < 23 && pos < sizeof(liveData) - 1) {
-      liveData[pos++] = ',';
-    }
-  }
-
-  // Null terminate
-  liveData[pos] = '\0';
-
-  // Broadcast
   webSocket.broadcastTXT(liveData);
 }
 
+// void setupWebServer() {
+//   server.on("/", []() {
+//       server.send(200, "text/plain", "Welcome to ESP32 Data Logger!");
+//     });
 
-void serveDogModel() {
-  File file = SD.open("/dog.glb");
-  if (file) {
-    server.streamFile(file, "model/gltf-binary");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "dog.glb not found");
-  }
+//   server.on("/toggleLogging", []() {
+//     loggingToggleRequested = true;
+//     server.send(200, "text/plain", enableLogging ? "Turning OFF..." : "Turning ON...");
+//   });
+
+//   server.on("/loggingStatus", []() {
+//     server.send(200, "text/plain", enableLogging ? "on" : "off");
+//   });
+
+//   server.begin();
+//   webSocket.begin();
+//   webSocket.onEvent([](uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+//     if (type == WStype_CONNECTED) Serial.println("WebSocket connected");
+//     else if (type == WStype_DISCONNECTED) Serial.println("WebSocket disconnected");
+//   });
+// }
+String getContentType(String filename) {
+  if (filename.endsWith(".htm") || filename.endsWith(".html")) return "text/html";
+  else if (filename.endsWith(".css")) return "text/css";
+  else if (filename.endsWith(".js")) return "application/javascript";
+  else if (filename.endsWith(".png")) return "image/png";
+  else if (filename.endsWith(".jpg")) return "image/jpeg";
+  else if (filename.endsWith(".ico")) return "image/x-icon";
+  else if (filename.endsWith(".svg")) return "image/svg+xml";
+  else if (filename.endsWith(".json")) return "application/json";
+  else return "text/plain";
 }
 
-void serveScript() {
-  File file = SD.open("/script.js");
-  if (file) {
-    server.streamFile(file, "application/javascript");
-    file.close();
-  } else {
-    server.send(404, "text/plain", "script.js not found");
-  }
+
+void setupWebServer() {
+  server.onNotFound([]() {
+    String path = server.uri();
+
+    if (path.endsWith("/")) path += "index.html";
+    Serial.print("Request for: "); Serial.println(path);
+
+    // SD.open needs full path
+    File file = SD.open("/" + path);
+    if (file) {
+      server.streamFile(file, getContentType(path));
+      file.close();
+    } else {
+      server.send(404, "text/plain", "404: File Not Found");
+    }
+  });
+
+  server.begin();
+
+  webSocket.begin();
+  webSocket.onEvent([](uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    if (type == WStype_CONNECTED) Serial.println("WebSocket connected");
+    else if (type == WStype_DISCONNECTED) Serial.println("WebSocket disconnected");
+  });
 }
+
+int countExistingLogs() {
+  int count = 0;
+  File dir = SD.open(folderPath.c_str());
+  if (!dir || !dir.isDirectory()) {
+    Serial.println("Failed to open /dog_files.");
+    return 0;
+  }
+
+  File entry = dir.openNextFile();
+  while (entry) {
+    if (!entry.isDirectory()) count++;
+    entry.close();
+    entry = dir.openNextFile();
+  }
+  dir.close();
+  return count;
+}
+
+void generateNewLogFileName() {
+  logFileNumber = countExistingLogs() + 1;
+  char buffer[40];
+  sprintf(buffer, "/dog_files/%s_%03d.txt", dogName.c_str(), logFileNumber);
+  logFileName = String(buffer);
+  
+  Serial.print("New file will be: ");
+  Serial.println(logFileName);
+}
+
