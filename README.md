@@ -95,7 +95,9 @@ This **dual-sensor approach** provided richer insight into gait asymmetries and 
 
 The Dog Orthopedic Sensor currently serves as a proof-of-concept platform rather than a finalized diagnostic tool. The most significant limitation is the limited availability of meaningful IMU data collected from dogs. While the framework for a Temporal Convolutional Network (TCN) model is already in place, it has not yet been trained due to the lack of veterinary-labeled gait datasets.
 
-This stage is intentional. The system is designed first as a data collection and visualization tool, laying the groundwork for building the larger datasets needed to unlock its full diagnostic capabilities. Once sufficient IMU data is collected across different breeds, sizes, and orthopedic conditions, the TCN model can be trained and validated, transforming the prototype into a machine learning–driven diagnostic support system.
+This stage is intentional. The system is designed first as a data collection and visualization tool, laying the groundwork for building the larger datasets needed to unlock its full diagnostic capabilities. 
+
+Once sufficient IMU data is collected across different breeds, sizes, and orthopedic conditions, the TCN model can be trained and validated, transforming the prototype into a machine learning diagnostic support system.
 
 Future Directions
 - Expand IMU dataset: Collect larger, labeled datasets from dogs across breeds, sizes, and conditions
