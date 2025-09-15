@@ -97,6 +97,11 @@ The Dog Orthopedic Sensor currently serves as a proof-of-concept platform rather
 
 This stage is intentional. The system is designed first as a data collection and visualization tool, laying the groundwork for building the larger datasets needed to unlock its full diagnostic capabilities. Once sufficient IMU data is collected across different breeds, sizes, and orthopedic conditions, the TCN model can be trained and validated, transforming the prototype into a machine learning–driven diagnostic support system.
 
+Future Directions
+- Expand IMU dataset: Collect larger, labeled datasets from dogs across breeds, sizes, and conditions
+- Train the TCN model: Use the labeled data to try to train the model into recognizing paterns of gait disabilities
+- Clinical validation: Compare model's predictive output with verified clinical diagnoses to gauge accuracy
+
 ---
 
 # Conclusion
